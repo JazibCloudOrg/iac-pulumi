@@ -1,0 +1,6 @@
+name: iac-pulumi
+runtime:
+  name: nodejs
+  options:
+    typescript: false
+description: This is my pulumi project for AWS
