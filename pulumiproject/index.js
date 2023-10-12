@@ -1,9 +1,10 @@
 const pulumi = require("@pulumi/pulumi");
 const aws = require("@pulumi/aws");
 
-
 const vpcCidrBlock = new pulumi.Config("myVPCModule").require("vpcCidrBlock");
 const destinationCidrBlock = new pulumi.Config("myVPCModule").require("destinationCidrBlock");
+const subnetSize = new pulumi.Config("myVPCModule").require("subnetSize");
+const subnetCidrPrefix = new pulumi.Config("myVPCModule").require("subnetCidrPrefix");
 
 
 const availableZones = async () => {
@@ -64,18 +65,23 @@ availableZones().then((zones) => {
     });
 
     const availabilityZones = Math.min(3, zones.length);
+    const generatedCIDRs = new Set();
 
     function generateRandomCIDRBlock() {
-        const subnetSize = 24;
-        const thirdOctet = Math.floor(Math.random() * 256);
-        const cidrBlock = `10.0.${thirdOctet}.0/${subnetSize}`;
+        let cidrBlock;
+        do {
+            const thirdOctet = Math.floor(Math.random() * 256);
+            cidrBlock = `${subnetCidrPrefix}.${thirdOctet}.0/${subnetSize}`;
+        } while (generatedCIDRs.has(cidrBlock));
+  
+        generatedCIDRs.add(cidrBlock);
         return cidrBlock;
     }
+
 
     for (let i = 0; i < availabilityZones; i++) {
             const publicSubnet = new aws.ec2.Subnet(`public-subnet-${i}`, {
             vpcId: main.id,
-           // cidrBlock: `10.0.${i}.0/24`,
             cidrBlock: generateRandomCIDRBlock(),
             availabilityZone: zones[i],
             mapPublicIpOnLaunch: true,
@@ -86,7 +92,6 @@ availableZones().then((zones) => {
 
             const privateSubnet = new aws.ec2.Subnet(`private-subnet-${i}`, {
             vpcId: main.id,
-          //  cidrBlock: `10.0.${i + 3}.0/24`, // Adjust the CIDR block as needed
             cidrBlock: generateRandomCIDRBlock(),
             availabilityZone: zones[i],
             tags: {
