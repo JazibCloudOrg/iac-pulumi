@@ -5,7 +5,12 @@ const vpcCidrBlock = new pulumi.Config("myVPCModule").require("vpcCidrBlock");
 const destinationCidrBlock = new pulumi.Config("myVPCModule").require("destinationCidrBlock");
 const subnetSize = new pulumi.Config("myVPCModule").require("subnetSize");
 const subnetCidrPrefix = new pulumi.Config("myVPCModule").require("subnetCidrPrefix");
-
+const ec2instanceType = new pulumi.Config("myVPCModule").require("ec2instanceType");
+const ec2keyName = new pulumi.Config("myVPCModule").require("ec2keyName");
+const ec2volumneSize = new pulumi.Config("myVPCModule").require("ec2volumneSize");
+const ec2volumeType = new pulumi.Config("myVPCModule").require("ec2volumeType");
+//const awsusersJson = new pulumi.Config("myVPCModule").require("awsusers")
+//const awsusers = JSON.parse(awsusersJson);
 
 const availableZones = async () => {
     try{
@@ -138,20 +143,31 @@ availableZones().then((zones) => {
         });
     }
 
+    const ami = aws.ec2.getAmi({
+        //executableUsers: ["363018103404"], // Replace with the owner of the AMI
+        mostRecent: true,  // To get the most recent image
+        filters: [
+            { name: "name", values: ["my-ami-node*"] },  // Replace with the pattern for your AMI name
+        ],
+    });
+    
+    const amiId = ami.then(ami => ami.id);
+
     const ec2Instance = new aws.ec2.Instance("myEC2Instance", {
-        ami: "ami-05a310802b431acb8", // Specify the desired Amazon Machine Image (AMI)
-        instanceType: "t2.micro", // Choose the instance type as per your requirement
+        //ami: "ami-04b87ed60ac291fac", // Specify the desired Amazon Machine Image (AMI)
+        ami: amiId,
+        instanceType: ec2instanceType, // Choose the instance type as per your requirement
         vpcSecurityGroupIds: [applicationSecurityGroup.id], // Attach the application security group
         subnetId: selectedSubnet.id, // Specify the subnet where you want to launch the instance
-        keyName: "mykeypair", // Specify the SSH key pair to use for access
+        keyName: ec2keyName, // Specify the SSH key pair to use for access
         associatePublicIpAddress: true, // Assign a public IP address for internet access
         disableApiTermination: false,
         tags: {
             Name: "MyEC2Instance", // Add any desired tags
         },
         rootBlockDevice: {
-            volumeSize: 25, // Size of the root EBS volume (in GB)
-            volumeType: "gp2",
+            volumeSize: ec2volumneSize, // Size of the root EBS volume (in GB)
+            volumeType: ec2volumeType,
             deleteOnTermination: true, // Ensure the volume is deleted when the instance is terminated
         },
     });
