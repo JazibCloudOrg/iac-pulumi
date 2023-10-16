@@ -37,6 +37,29 @@ availableZones().then((zones) => {
         },
     });
 
+    const applicationSecurityGroup = new aws.ec2.SecurityGroup("application-security-group", {
+        description: "Security group for web applications",
+        vpcId: main.id, // Replace with your VPC ID
+    });
+
+    const ingressRules = [
+        { protocol: "tcp", fromPort: 22, toPort: 22, cidrBlocks: ["0.0.0.0/0"] }, // SSH
+        { protocol: "tcp", fromPort: 80, toPort: 80, cidrBlocks: ["0.0.0.0/0"] }, // HTTP
+        { protocol: "tcp", fromPort: 443, toPort: 443, cidrBlocks: ["0.0.0.0/0"] }, // HTTPS
+        { protocol: "tcp", fromPort: 8080, toPort: 8080, cidrBlocks: ["0.0.0.0/0"] }
+    ];
+
+    for (const rule of ingressRules) {
+        new aws.ec2.SecurityGroupRule(`ingress-${rule.fromPort}`, {
+            type: "ingress",
+            fromPort: rule.fromPort,
+            toPort: rule.toPort,
+            protocol: rule.protocol,
+            securityGroupId: applicationSecurityGroup.id,
+            cidrBlocks: rule.cidrBlocks,
+        });
+    }
+
     const InternetGatewayAttachment = new aws.ec2.InternetGatewayAttachment("InternetGatewayAttachment", {
         internetGatewayId: gw.id,
         vpcId: main.id,
@@ -78,7 +101,7 @@ availableZones().then((zones) => {
         return cidrBlock;
     }
 
-
+    let selectedSubnet;
     for (let i = 0; i < availabilityZones; i++) {
             const publicSubnet = new aws.ec2.Subnet(`public-subnet-${i}`, {
             vpcId: main.id,
@@ -89,6 +112,11 @@ availableZones().then((zones) => {
                 Name: `public-subnet-${i}`,
             },
         });
+
+
+        if (i === 0) {
+            selectedSubnet = publicSubnet; // Select the first subnet or any specific subnet you want
+        }
 
             const privateSubnet = new aws.ec2.Subnet(`private-subnet-${i}`, {
             vpcId: main.id,
@@ -109,6 +137,24 @@ availableZones().then((zones) => {
             routeTableId: privateRouteTable.id,
         });
     }
+
+    const ec2Instance = new aws.ec2.Instance("myEC2Instance", {
+        ami: "ami-05a310802b431acb8", // Specify the desired Amazon Machine Image (AMI)
+        instanceType: "t2.micro", // Choose the instance type as per your requirement
+        vpcSecurityGroupIds: [applicationSecurityGroup.id], // Attach the application security group
+        subnetId: selectedSubnet.id, // Specify the subnet where you want to launch the instance
+        keyName: "mykeypair", // Specify the SSH key pair to use for access
+        associatePublicIpAddress: true, // Assign a public IP address for internet access
+        disableApiTermination: false,
+        tags: {
+            Name: "MyEC2Instance", // Add any desired tags
+        },
+        rootBlockDevice: {
+            volumeSize: 25, // Size of the root EBS volume (in GB)
+            volumeType: "gp2",
+            deleteOnTermination: true, // Ensure the volume is deleted when the instance is terminated
+        },
+    });
 }).catch((error) => {
     console.error(error);
 });
