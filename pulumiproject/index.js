@@ -9,8 +9,7 @@ const ec2instanceType = new pulumi.Config("myVPCModule").require("ec2instanceTyp
 const ec2keyName = new pulumi.Config("myVPCModule").require("ec2keyName");
 const ec2volumneSize = new pulumi.Config("myVPCModule").require("ec2volumneSize");
 const ec2volumeType = new pulumi.Config("myVPCModule").require("ec2volumeType");
-//const awsusersJson = new pulumi.Config("myVPCModule").require("awsusers")
-//const awsusers = JSON.parse(awsusersJson);
+
 
 const availableZones = async () => {
     try{
@@ -69,8 +68,6 @@ availableZones().then((zones) => {
         internetGatewayId: gw.id,
         vpcId: main.id,
     });
-
-    //const availabilityZones = ['us-east-1a', 'us-east-1b', 'us-east-1c'];
 
     const publicRouteTable = new aws.ec2.RouteTable('public-route-table', {
         vpcId: main.id, // Use your VPC ID
@@ -144,7 +141,6 @@ availableZones().then((zones) => {
     }
 
     const ami = aws.ec2.getAmi({
-        //executableUsers: ["363018103404"], // Replace with the owner of the AMI
         mostRecent: true,  // To get the most recent image
         filters: [
             { name: "name", values: ["my-ami-node*"] },  // Replace with the pattern for your AMI name
@@ -154,8 +150,7 @@ availableZones().then((zones) => {
     const amiId = ami.then(ami => ami.id);
 
     const ec2Instance = new aws.ec2.Instance("myEC2Instance", {
-        //ami: "ami-04b87ed60ac291fac", // Specify the desired Amazon Machine Image (AMI)
-        ami: amiId,
+        ami: amiId,  // Specify the desired Amazon Machine Image (AMI)
         instanceType: ec2instanceType, // Choose the instance type as per your requirement
         vpcSecurityGroupIds: [applicationSecurityGroup.id], // Attach the application security group
         subnetId: selectedSubnet.id, // Specify the subnet where you want to launch the instance
