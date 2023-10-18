@@ -155,7 +155,7 @@ availableZones().then((zones) => {
         vpcSecurityGroupIds: [applicationSecurityGroup.id], // Attach the application security group
         subnetId: selectedSubnet.id, // Specify the subnet where you want to launch the instance
         keyName: ec2keyName, // Specify the SSH key pair to use for access
-        associatePublicIpAddress: true, // Assign a public IP address for internet access
+        //associatePublicIpAddress: true, // Assign a public IP address for internet access
         disableApiTermination: false,
         tags: {
             Name: "MyEC2Instance", // Add any desired tags
