@@ -9,8 +9,21 @@ const ec2instanceType = new pulumi.Config("myVPCModule").require("ec2instanceTyp
 const ec2keyName = new pulumi.Config("myVPCModule").require("ec2keyName");
 const ec2volumneSize = new pulumi.Config("myVPCModule").require("ec2volumneSize");
 const ec2volumeType = new pulumi.Config("myVPCModule").require("ec2volumeType");
+const rdsstorage = new pulumi.Config("myRDSModule").require("rdsstorage");
+const rdsstorageType = new pulumi.Config("myRDSModule").require("rdsstorageType");
+const rdsengine = new pulumi.Config("myRDSModule").require("rdsengine");
+const rdsengineVersion = new pulumi.Config("myRDSModule").require("rdsengineVersion");
+const rdsinstanceClass = new pulumi.Config("myRDSModule").require("rdsinstanceClass");
+const rdsdbInstanceIdentifier = new pulumi.Config("myRDSModule").require("rdsdbInstanceIdentifier");
+const rdsusername = new pulumi.Config("myRDSModule").require("rdsusername");
+const rdspassword = new pulumi.Config("myRDSModule").require("rdspassword");
+const rdsdbName = new pulumi.Config("myRDSModule").require("rdsdbName");
 
 
+
+
+
+// Function to fetch availability zones based on region
 const availableZones = async () => {
     try{
         const zones = await aws.getAvailabilityZones({
@@ -41,6 +54,12 @@ availableZones().then((zones) => {
         },
     });
 
+    const InternetGatewayAttachment = new aws.ec2.InternetGatewayAttachment("InternetGatewayAttachment", {
+        internetGatewayId: gw.id,
+        vpcId: main.id,
+    });
+
+
     const applicationSecurityGroup = new aws.ec2.SecurityGroup("application-security-group", {
         description: "Security group for web applications",
         vpcId: main.id, // Replace with your VPC ID
@@ -64,9 +83,34 @@ availableZones().then((zones) => {
         });
     }
 
-    const InternetGatewayAttachment = new aws.ec2.InternetGatewayAttachment("InternetGatewayAttachment", {
-        internetGatewayId: gw.id,
-        vpcId: main.id,
+    const ec2OutgresRule = new aws.ec2.SecurityGroupRule("ec2-outgress-rule", {
+        type: "egress",
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"], // Allow outbound traffic to the internet
+        securityGroupId: applicationSecurityGroup.id,
+    });
+
+    const rdsSecurityGroup = new aws.ec2.SecurityGroup("database-security-group", {
+        description: "Security group for RDS instances",
+        vpcId: main.id, // Replace with your VPC ID
+    });
+
+    const databaseIngressRule = new aws.ec2.SecurityGroupRule("database-ingress-rule", {
+        type: "ingress",
+        fromPort: 5432,
+        toPort: 5432,
+        protocol: "tcp",
+        securityGroupId: rdsSecurityGroup.id,
+        sourceSecurityGroupId: applicationSecurityGroup.id,
+        description: `Allow traffic from the application security group`,
+    });
+
+    // Create a new DB parameter group
+    const dbParameterGroup = new aws.rds.ParameterGroup("mypostgrespg", {
+        family: "postgres15",
+        description: "Custom DB Parameter Group for my RDS instance"
     });
 
     const publicRouteTable = new aws.ec2.RouteTable('public-route-table', {
@@ -104,6 +148,8 @@ availableZones().then((zones) => {
     }
 
     let selectedSubnet;
+    const privateSubnets = [];
+  
     for (let i = 0; i < availabilityZones; i++) {
             const publicSubnet = new aws.ec2.Subnet(`public-subnet-${i}`, {
             vpcId: main.id,
@@ -114,7 +160,6 @@ availableZones().then((zones) => {
                 Name: `public-subnet-${i}`,
             },
         });
-
 
         if (i === 0) {
             selectedSubnet = publicSubnet; // Select the first subnet or any specific subnet you want
@@ -129,6 +174,8 @@ availableZones().then((zones) => {
             },
         });
 
+        privateSubnets.push(privateSubnet.id);
+
         new aws.ec2.RouteTableAssociation(`public-subnet-association-${i}`, {
             subnetId: publicSubnet.id,
             routeTableId: publicRouteTable.id,
@@ -139,6 +186,45 @@ availableZones().then((zones) => {
             routeTableId: privateRouteTable.id,
         });
     }
+
+    const rdsSubnetGroup = new aws.rds.SubnetGroup("myrdssubnetgroup", {
+        subnetIds: privateSubnets, // Use the array of subnet IDs
+        tags: {
+            Name: "my-rds-subnet-group",
+        },
+    });
+
+    //Create an RDS instance with the specified configuration
+    const rdsInstance = new aws.rds.Instance("myrdsinstance", {
+        allocatedStorage: rdsstorage, // Replace with your desired storage size
+        storageType: rdsstorageType,
+        engine: rdsengine,
+        engineVersion: rdsengineVersion, // Adjust the version based on your choice
+        instanceClass: rdsinstanceClass,
+        dbInstanceIdentifier: rdsdbInstanceIdentifier,
+        username: rdsusername,
+        password: rdspassword,
+        skipFinalSnapshot: true, // Set to true if you don't want a final DB snapshot
+        vpcSecurityGroupIds: [rdsSecurityGroup.id], // Add your Security Group ID here
+        dbSubnetGroupName: rdsSubnetGroup.name,
+        multiAZ: false,
+        publiclyAccessible: false,
+        dbName: rdsdbName,
+        parameterGroupName: dbParameterGroup.name,
+    });
+
+    const userDataScript = pulumi.all([rdsInstance.dbName, rdsInstance.username, rdsInstance.password, rdsInstance.address]).apply(([dbName, username, password, host]) => {
+        return `#!/bin/bash
+    echo "PGDATABASE=${dbName}" >> /home/admin/.env
+    echo "PGUSER=${username}" >> /home/admin/.env
+    echo "PGPASSWORD=${password}" >> /home/admin/.env
+    echo "PGHOST=${host}" >> /home/admin/.env
+    echo "PGPORT=5432" >> /home/admin/.env
+    sudo systemctl daemon-reload
+    sudo systemctl enable webapp
+    sudo systemctl start webapp
+    `;
+    });
 
     const ami = aws.ec2.getAmi({
         mostRecent: true,  // To get the most recent image
@@ -157,6 +243,7 @@ availableZones().then((zones) => {
         keyName: ec2keyName, // Specify the SSH key pair to use for access
         //associatePublicIpAddress: true, // Assign a public IP address for internet access
         disableApiTermination: false,
+        userData: userDataScript,
         tags: {
             Name: "MyEC2Instance", // Add any desired tags
         },
