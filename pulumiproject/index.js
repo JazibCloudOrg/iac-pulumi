@@ -21,9 +21,6 @@ const rdsdbName = new pulumi.Config("myRDSModule").require("rdsdbName");
 
 
 
-
-
-// Function to fetch availability zones based on region
 const availableZones = async () => {
     try{
         const zones = await aws.getAvailabilityZones({
@@ -62,7 +59,7 @@ availableZones().then((zones) => {
 
     const applicationSecurityGroup = new aws.ec2.SecurityGroup("application-security-group", {
         description: "Security group for web applications",
-        vpcId: main.id, // Replace with your VPC ID
+        vpcId: main.id,
     });
 
     const ingressRules = [
@@ -88,13 +85,13 @@ availableZones().then((zones) => {
         fromPort: 0,
         toPort: 0,
         protocol: "-1",
-        cidrBlocks: ["0.0.0.0/0"], // Allow outbound traffic to the internet
+        cidrBlocks: ["0.0.0.0/0"],
         securityGroupId: applicationSecurityGroup.id,
     });
 
     const rdsSecurityGroup = new aws.ec2.SecurityGroup("database-security-group", {
         description: "Security group for RDS instances",
-        vpcId: main.id, // Replace with your VPC ID
+        vpcId: main.id,
     });
 
     const databaseIngressRule = new aws.ec2.SecurityGroupRule("database-ingress-rule", {
@@ -107,21 +104,20 @@ availableZones().then((zones) => {
         description: `Allow traffic from the application security group`,
     });
 
-    // Create a new DB parameter group
     const dbParameterGroup = new aws.rds.ParameterGroup("mypostgrespg", {
         family: "postgres15",
         description: "Custom DB Parameter Group for my RDS instance"
     });
 
     const publicRouteTable = new aws.ec2.RouteTable('public-route-table', {
-        vpcId: main.id, // Use your VPC ID
+        vpcId: main.id,
         tags: {
             Name: 'public-route-table',
         },
     });
 
     const privateRouteTable = new aws.ec2.RouteTable("privateRouteTable", {
-        vpcId: main.id, // Use the VPC ID of your existing VPC
+        vpcId: main.id,
         tags: {
         Name: "private-route-table",
         },
@@ -129,7 +125,7 @@ availableZones().then((zones) => {
 
     const publicRoute = new aws.ec2.Route('public-route', {
         routeTableId: publicRouteTable.id,
-        destinationCidrBlock: destinationCidrBlock, // Send all traffic to the internet
+        destinationCidrBlock: destinationCidrBlock,
         gatewayId: gw.id,
     });
 
@@ -162,7 +158,7 @@ availableZones().then((zones) => {
         });
 
         if (i === 0) {
-            selectedSubnet = publicSubnet; // Select the first subnet or any specific subnet you want
+            selectedSubnet = publicSubnet;
         }
 
             const privateSubnet = new aws.ec2.Subnet(`private-subnet-${i}`, {
@@ -188,24 +184,23 @@ availableZones().then((zones) => {
     }
 
     const rdsSubnetGroup = new aws.rds.SubnetGroup("myrdssubnetgroup", {
-        subnetIds: privateSubnets, // Use the array of subnet IDs
+        subnetIds: privateSubnets,
         tags: {
             Name: "my-rds-subnet-group",
         },
     });
 
-    //Create an RDS instance with the specified configuration
     const rdsInstance = new aws.rds.Instance("myrdsinstance", {
-        allocatedStorage: rdsstorage, // Replace with your desired storage size
+        allocatedStorage: rdsstorage,
         storageType: rdsstorageType,
         engine: rdsengine,
-        engineVersion: rdsengineVersion, // Adjust the version based on your choice
+        engineVersion: rdsengineVersion,
         instanceClass: rdsinstanceClass,
         dbInstanceIdentifier: rdsdbInstanceIdentifier,
         username: rdsusername,
         password: rdspassword,
-        skipFinalSnapshot: true, // Set to true if you don't want a final DB snapshot
-        vpcSecurityGroupIds: [rdsSecurityGroup.id], // Add your Security Group ID here
+        skipFinalSnapshot: true,
+        vpcSecurityGroupIds: [rdsSecurityGroup.id],
         dbSubnetGroupName: rdsSubnetGroup.name,
         multiAZ: false,
         publiclyAccessible: false,
@@ -227,30 +222,30 @@ availableZones().then((zones) => {
     });
 
     const ami = aws.ec2.getAmi({
-        mostRecent: true,  // To get the most recent image
+        mostRecent: true,
         filters: [
-            { name: "name", values: ["my-ami-node*"] },  // Replace with the pattern for your AMI name
+            { name: "name", values: ["my-ami-node*"] },
         ],
     });
     
     const amiId = ami.then(ami => ami.id);
 
     const ec2Instance = new aws.ec2.Instance("myEC2Instance", {
-        ami: amiId,  // Specify the desired Amazon Machine Image (AMI)
-        instanceType: ec2instanceType, // Choose the instance type as per your requirement
-        vpcSecurityGroupIds: [applicationSecurityGroup.id], // Attach the application security group
-        subnetId: selectedSubnet.id, // Specify the subnet where you want to launch the instance
-        keyName: ec2keyName, // Specify the SSH key pair to use for access
-        //associatePublicIpAddress: true, // Assign a public IP address for internet access
+        ami: amiId,
+        instanceType: ec2instanceType,
+        vpcSecurityGroupIds: [applicationSecurityGroup.id],
+        subnetId: selectedSubnet.id,
+        keyName: ec2keyName,
+        //associatePublicIpAddress: true,
         disableApiTermination: false,
         userData: userDataScript,
         tags: {
-            Name: "MyEC2Instance", // Add any desired tags
+            Name: "MyEC2Instance",
         },
         rootBlockDevice: {
-            volumeSize: ec2volumneSize, // Size of the root EBS volume (in GB)
+            volumeSize: ec2volumneSize,
             volumeType: ec2volumeType,
-            deleteOnTermination: true, // Ensure the volume is deleted when the instance is terminated
+            deleteOnTermination: true,
         },
     });
 }).catch((error) => {
