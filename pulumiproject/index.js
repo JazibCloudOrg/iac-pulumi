@@ -210,15 +210,17 @@ availableZones().then((zones) => {
 
     const userDataScript = pulumi.all([rdsInstance.dbName, rdsInstance.username, rdsInstance.password, rdsInstance.address]).apply(([dbName, username, password, host]) => {
         return `#!/bin/bash
-    echo "PGDATABASE=${dbName}" >> /opt/mywebappdir/.env
-    echo "PGUSER=${username}" >> /opt/mywebappdir/.env
-    echo "PGPASSWORD=${password}" >> /opt/mywebappdir/.env
-    echo "PGHOST=${host}" >> /opt/mywebappdir/.env
-    echo "PGPORT=5432" >> /opt/mywebappdir/.env
-    sudo systemctl daemon-reload
-    sudo systemctl enable webapp
-    sudo systemctl start webapp
-    `;
+        envFile="/opt/mywebappdir/.env"
+        > "$envFile"
+        echo "PGDATABASE=${dbName}" >> "$envFile"
+        echo "PGUSER=${username}" >> "$envFile"
+        echo "PGPASSWORD=${password}" >> "$envFile"
+        echo "PGHOST=${host}" >> "$envFile"
+        echo "PGPORT=5432" >> "$envFile"
+        sudo systemctl daemon-reload
+        sudo systemctl enable webapp
+        sudo systemctl start webapp
+        `;
     });
 
     const ami = aws.ec2.getAmi({
