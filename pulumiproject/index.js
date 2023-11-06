@@ -18,7 +18,10 @@ const rdsdbInstanceIdentifier = new pulumi.Config("myRDSModule").require("rdsdbI
 const rdsusername = new pulumi.Config("myRDSModule").require("rdsusername");
 const rdspassword = new pulumi.Config("myRDSModule").require("rdspassword");
 const rdsdbName = new pulumi.Config("myRDSModule").require("rdsdbName");
-
+const zoneId = new pulumi.Config("myRoute53Module").require("zoneId");
+const domainName = new pulumi.Config("myRoute53Module").require("domainName");
+const dnsRecordType = new pulumi.Config("myRoute53Module").require("dnsRecordType");
+const dnsRecordTtl = new pulumi.Config("myRoute53Module").require("dnsRecordTtl");
 
 
 const availableZones = async () => {
@@ -217,10 +220,38 @@ availableZones().then((zones) => {
         echo "PGPASSWORD=${password}" >> "$envFile"
         echo "PGHOST=${host}" >> "$envFile"
         echo "PGPORT=5432" >> "$envFile"
+        sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config \
+            -m ec2 \
+            -c file:/opt/mywebappdir/cloudwatch_config.json \
+            -s
         sudo systemctl daemon-reload
         sudo systemctl enable webapp
         sudo systemctl start webapp
         `;
+    });
+
+    const cloudWatchAgentServiceRole = new aws.iam.Role("cloudWatchAgentServiceRoleforec2", {
+        assumeRolePolicy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Action: "sts:AssumeRole",
+                Effect: "Allow",
+                Principal: {
+                    Service: "ec2.amazonaws.com",
+                },
+            }],
+        }),
+    });
+ 
+    const clouldWatchAgenetPolicyArn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy";
+    const cloudWatchAgentServiceRolePolicyAttachment = new aws.iam.PolicyAttachment("cloudWatchAgentServiceRolePolicyAttachment", {
+        policyArn: clouldWatchAgenetPolicyArn,
+        roles: [cloudWatchAgentServiceRole.name],
+    });
+
+    const instanceProfile = new aws.iam.InstanceProfile("myInstanceProfile", {
+        role: cloudWatchAgentServiceRole.name,
     });
 
     const ami = aws.ec2.getAmi({
@@ -238,6 +269,7 @@ availableZones().then((zones) => {
         vpcSecurityGroupIds: [applicationSecurityGroup.id],
         subnetId: selectedSubnet.id,
         keyName: ec2keyName,
+        iamInstanceProfile: instanceProfile.name,
         //associatePublicIpAddress: true,
         disableApiTermination: false,
         userData: userDataScript,
@@ -249,6 +281,14 @@ availableZones().then((zones) => {
             volumeType: ec2volumeType,
             deleteOnTermination: true,
         },
+    });
+
+    const webAppDNSRecord = new aws.route53.Record(`${domainName}-a-record`, {
+        zoneId: zoneId,
+        name: domainName,
+        type: dnsRecordType,
+        ttl: dnsRecordTtl,
+        records: [ec2Instance.publicIp]
     });
 }).catch((error) => {
     console.error(error);
