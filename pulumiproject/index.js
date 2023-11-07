@@ -18,7 +18,7 @@ const rdsdbInstanceIdentifier = new pulumi.Config("myRDSModule").require("rdsdbI
 const rdsusername = new pulumi.Config("myRDSModule").require("rdsusername");
 const rdspassword = new pulumi.Config("myRDSModule").require("rdspassword");
 const rdsdbName = new pulumi.Config("myRDSModule").require("rdsdbName");
-const zoneId = new pulumi.Config("myRoute53Module").require("zoneId");
+//const zoneId = new pulumi.Config("myRoute53Module").require("zoneId");
 const domainName = new pulumi.Config("myRoute53Module").require("domainName");
 const dnsRecordType = new pulumi.Config("myRoute53Module").require("dnsRecordType");
 const dnsRecordTtl = new pulumi.Config("myRoute53Module").require("dnsRecordTtl");
@@ -283,8 +283,11 @@ availableZones().then((zones) => {
         },
     });
 
+    const myZone = aws.route53.getZone({ name: domainName });
+    const myZoneId = myZone.then(zone => zone.zoneId);
+
     const webAppDNSRecord = new aws.route53.Record(`${domainName}-a-record`, {
-        zoneId: zoneId,
+        zoneId: myZoneId,
         name: domainName,
         type: dnsRecordType,
         ttl: dnsRecordTtl,
