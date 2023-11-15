@@ -22,7 +22,26 @@ const rdsdbName = new pulumi.Config("myRDSModule").require("rdsdbName");
 const domainName = new pulumi.Config("myRoute53Module").require("domainName");
 const dnsRecordType = new pulumi.Config("myRoute53Module").require("dnsRecordType");
 const dnsRecordTtl = new pulumi.Config("myRoute53Module").require("dnsRecordTtl");
-
+const applicationPort = new pulumi.Config("myApplicationModule").require("applicationPort");
+const minimumSize = new pulumi.Config("myAutoScalingGroup").require("minimumSize");
+const maximumSize = new pulumi.Config("myAutoScalingGroup").require("maximumSize");
+const desiredCapacity = new pulumi.Config("myAutoScalingGroup").require("desiredCapacity");
+const cooldownPeriod = new pulumi.Config("myAutoScalingGroup").require("cooldownPeriod");
+const scaleUpThreshold = new pulumi.Config("myAutoScalingGroup").require("scaleUpThreshold");
+const scaleUpPeriod = new pulumi.Config("myAutoScalingGroup").require("scaleUpPeriod");
+const scaleDownThreshold = new pulumi.Config("myAutoScalingGroup").require("scaleDownThreshold");
+const scaleDownPeriod = new pulumi.Config("myAutoScalingGroup").require("scaleDownPeriod");
+const evaluationPeriods = new pulumi.Config("myAutoScalingGroup").require("evaluationPeriods");
+const metricName = new pulumi.Config("myAutoScalingGroup").require("metricName");
+const namespace = new pulumi.Config("myAutoScalingGroup").require("namespace");
+const scalingUpAdjustment = new pulumi.Config("myAutoScalingGroup").require("scalingUpAdjustment");
+const scalingDownAdjustment = new pulumi.Config("myAutoScalingGroup").require("scalingDownAdjustment");
+const healthCheckPath = new pulumi.Config("myTargetGroup").require("healthCheckPath");
+const healthyThreshold = new pulumi.Config("myTargetGroup").require("healthyThreshold");
+const unhealthyThreshold = new pulumi.Config("myTargetGroup").require("unhealthyThreshold");
+const healthCheckTimeout = new pulumi.Config("myTargetGroup").require("healthCheckTimeout");
+const healthCheckInterval = new pulumi.Config("myTargetGroup").require("healthCheckInterval");
+const healthCheckMatcher = new pulumi.Config("myTargetGroup").require("healthCheckMatcher");
 
 const availableZones = async () => {
     try{
@@ -303,26 +322,6 @@ availableZones().then((zones) => {
     
     const amiId = ami.then(ami => ami.id);
 
-    // const ec2Instance = new aws.ec2.Instance("myEC2Instance", {
-    //     ami: amiId,
-    //     instanceType: ec2instanceType,
-    //     vpcSecurityGroupIds: [applicationSecurityGroup.id],
-    //     subnetId: selectedSubnet.id,
-    //     keyName: ec2keyName,
-    //     iamInstanceProfile: instanceProfile.name,
-    //     //associatePublicIpAddress: true,
-    //     disableApiTermination: false,
-    //     userData: userDataScript,
-    //     tags: {
-    //         Name: "MyEC2Instance",
-    //     },
-    //     rootBlockDevice: {
-    //         volumeSize: ec2volumneSize,
-    //         volumeType: ec2volumeType,
-    //         deleteOnTermination: true,
-    //     },
-    // });
-
     const launchTemplate = new aws.ec2.LaunchTemplate("webAppLaunchTemplate", {
         blockDeviceMappings: [{
             deviceName: "/dev/xvda",
@@ -353,27 +352,27 @@ availableZones().then((zones) => {
     });
 
     const targetGroup = new aws.lb.TargetGroup("myTargetGroup", {
-        port: 8080,
+        port: applicationPort,
         protocol: "HTTP",
         vpcId: main.id,
         healthCheck: {
             enabled: true,
-            interval: 300,
-            path: "/healthz",
-            port: 8080,
+            interval: healthCheckInterval,
+            path: healthCheckPath,
+            port: applicationPort,
             //protocol: "HTTP",
-            timeout: 5,
-            healthyThreshold: 2,
-            unhealthyThreshold: 2, 
-            matcher: "200",
+            timeout: healthCheckTimeout,
+            healthyThreshold: healthyThreshold,
+            unhealthyThreshold: unhealthyThreshold, 
+            matcher: healthCheckMatcher,
         },
     });
 
     const autoScalingGroup = new aws.autoscaling.Group("myAutoScalingGroup", {
-        minSize: 1,
-        maxSize: 3,
-        desiredCapacity: 1,
-        cooldown: 60,
+        minSize: minimumSize,
+        maxSize: maximumSize,
+        desiredCapacity: desiredCapacity,
+        cooldown: cooldownPeriod,
         launchTemplate: {
             id: launchTemplate.id,
             version: "$Latest",
@@ -394,17 +393,17 @@ availableZones().then((zones) => {
         //estimatedInstanceWarmup: 300,
         autoscalingGroupName: autoScalingGroup.name,
         policyType: "SimpleScaling",
-        scalingAdjustment: 1,
-        cooldown: 60
+        scalingAdjustment: scalingUpAdjustment,
+        cooldown: cooldownPeriod
     });
 
     const scaleUpAlarm = new aws.cloudwatch.MetricAlarm("ScaleUpAlarm", {
         comparisonOperator: "GreaterThanThreshold",
-        evaluationPeriods: 1,
-        metricName: "CPUUtilization",
-        namespace: "AWS/EC2",
-        period: 120,
-        threshold: 5,
+        evaluationPeriods: evaluationPeriods,
+        metricName: metricName,
+        namespace: namespace,
+        period: scaleUpPeriod,
+        threshold: scaleUpThreshold,
         statistic: "Average",
         dimensions: {
             AutoScalingGroupName: autoScalingGroup.name,
@@ -418,17 +417,17 @@ availableZones().then((zones) => {
         //estimatedInstanceWarmup: 300,
         autoscalingGroupName: autoScalingGroup.name,
         policyType: "SimpleScaling",
-        scalingAdjustment: -1,
-        cooldown: 60
+        scalingAdjustment: scalingDownAdjustment,
+        cooldown: cooldownPeriod
     });
 
     const scaleDownAlarm = new aws.cloudwatch.MetricAlarm("ScaleDownAlarm", {
         comparisonOperator: "LessThanThreshold",
-        evaluationPeriods: 1,
-        metricName: "CPUUtilization",
-        namespace: "AWS/EC2",
-        period: 120,
-        threshold: 3,
+        evaluationPeriods: evaluationPeriods,
+        metricName: metricName,
+        namespace: namespace,
+        period: scaleDownPeriod,
+        threshold: scaleDownThreshold,
         statistic: "Average",
         dimensions: {
             AutoScalingGroupName: autoScalingGroup.name,
