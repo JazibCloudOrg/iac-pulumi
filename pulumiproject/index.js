@@ -1,6 +1,10 @@
 const pulumi = require("@pulumi/pulumi");
 const aws = require("@pulumi/aws");
+const gcp = require("@pulumi/gcp");
 
+const awsregion = new pulumi.Config("aws").require("region");
+const gcpregion = new pulumi.Config("gcp").require("region");
+const gcpproject = new pulumi.Config("gcp").require("project");
 const vpcCidrBlock = new pulumi.Config("myVPCModule").require("vpcCidrBlock");
 const destinationCidrBlock = new pulumi.Config("myVPCModule").require("destinationCidrBlock");
 const subnetSize = new pulumi.Config("myVPCModule").require("subnetSize");
@@ -42,6 +46,9 @@ const unhealthyThreshold = new pulumi.Config("myTargetGroup").require("unhealthy
 const healthCheckTimeout = new pulumi.Config("myTargetGroup").require("healthCheckTimeout");
 const healthCheckInterval = new pulumi.Config("myTargetGroup").require("healthCheckInterval");
 const healthCheckMatcher = new pulumi.Config("myTargetGroup").require("healthCheckMatcher");
+const lambdaRuntime = new pulumi.Config("lambda").require("runtime");
+const lambdaHandler = new pulumi.Config("lambda").require("handler");
+const lambdaFunctionPath = new pulumi.Config("lambda").require("functionPath");
 
 const availableZones = async () => {
     try{
@@ -242,6 +249,180 @@ availableZones().then((zones) => {
         });
     }
 
+    const gcsBucket = new gcp.storage.Bucket("my-gcs-bucket", {
+        location: gcpregion,
+        versioning: {
+            enabled: true,
+        },
+        forceDestroy: true
+    });
+
+    const serviceAccount = new gcp.serviceaccount.Account("my-service-account", {
+        accountId: "my-service-account",
+        project: gcpproject,
+    });
+
+    const objectAdminBinding = new gcp.projects.IAMBinding("objectAdminBinding", {
+        project: gcpproject,
+        role: "roles/storage.objectAdmin",
+        members: [pulumi.interpolate`serviceAccount:${serviceAccount.email}`],
+    });
+
+    const serviceAccountKey = new gcp.serviceaccount.Key("my-service-account-key", {
+        serviceAccountId: serviceAccount.name,
+        publicKeyType: "TYPE_X509_PEM_FILE",
+    });
+
+    const myTopic = new aws.sns.Topic("myTopic");
+
+    const snsUser = new aws.iam.User("snsUser");
+
+    const snsPolicy = new aws.iam.Policy("snsPolicy", {
+        description: "Policy for SNS access",
+        policy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Action: [
+                    "sns:Publish",
+                    "sns:Subscribe",
+                ],
+                Effect: "Allow",
+                Resource: "*",
+            }],
+        }),
+    });
+
+    const snsUserPolicyAttachment = new aws.iam.UserPolicyAttachment("snsUserPolicyAttachment", {
+        policyArn: snsPolicy.arn,
+        user: snsUser.name,
+    });
+
+    const snsAccessKeys = new aws.iam.AccessKey("snsAccessKeys", {
+        user: snsUser.name,
+    });
+
+    const lambdaFunctionRole = new aws.iam.Role("lambdaFunctionRole", {
+        assumeRolePolicy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Action: "sts:AssumeRole",
+                Effect: "Allow",
+                Principal: {
+                    Service: "lambda.amazonaws.com",
+                },
+            }],
+        }),
+    });
+
+    const lambdaRolePolicyArn = "arn:aws:iam::aws:policy/service-role/AWSLambdaRole";
+    const lambdaFunctionRolePolicyAttachment = new aws.iam.PolicyAttachment("lambdaFunctionRolePolicyAttachment", {
+        policyArn: lambdaRolePolicyArn,
+        roles: [lambdaFunctionRole.name],
+    });
+
+    const lambdaBasicExecutionRolePolicyAttachment = new aws.iam.PolicyAttachment("lambdaBasicExecutionRolePolicyAttachment", {
+        policyArn: "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+        roles: [lambdaFunctionRole.name],
+    });
+
+    const lambdaSESFullAccessPolicyAttachment = new aws.iam.PolicyAttachment("lambdaSESFullAccessPolicyAttachment", {
+        policyArn: "arn:aws:iam::aws:policy/AmazonSESFullAccess",
+        roles: [lambdaFunctionRole.name],
+    });
+
+    const dynamoDBTable = new aws.dynamodb.Table("EmailTracking", {
+        attributes: [
+            {
+                name: "EmailId",
+                type: "S",
+            },
+            {
+                name: "ReceiverEmail",
+                type: "S",
+            },
+            {
+                name: "Status",
+                type: "S",
+            },
+            {
+                name: "EmailBody",
+                type: "S",
+            },
+        ],
+        hashKey: "EmailId",
+        billingMode: "PAY_PER_REQUEST",
+        globalSecondaryIndexes: [
+            {
+                name: "ReceiverEmailIndex",
+                hashKey: "ReceiverEmail",
+                projectionType: "ALL",
+            },
+            {
+                name: "StatusIndex",
+                hashKey: "Status",
+                projectionType: "ALL",
+            },
+            {
+                name: "EmailBodyIndex",
+                hashKey: "EmailBody",
+                projectionType: "ALL",
+            },
+        ],
+    });
+
+    const dynamoDBPolicy = new aws.iam.Policy("dynamoDBPolicy", {
+        description: "Allow PutItem and GetItem in DynamoDB",
+        policy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Effect: "Allow",
+                    Action: [
+                        "dynamodb:GetItem",
+                        "dynamodb:PutItem",
+                    ],
+                    Resource: "*",
+                },
+            ],
+        }),
+    });
+    
+    const dynamoDBPolicyAttachment = new aws.iam.PolicyAttachment("dynamoDBPolicyAttachment", {
+        policyArn: dynamoDBPolicy.arn,
+        roles: [lambdaFunctionRole.name],
+    });
+
+
+    const lambdaFunction = new aws.lambda.Function("my-lambda-function", {
+        runtime: lambdaRuntime,
+        handler: lambdaHandler,
+        code: new pulumi.asset.AssetArchive({
+            ".": new pulumi.asset.FileArchive(lambdaFunctionPath),
+        }),
+        environment: {
+            variables: {
+                GCP_CLIENT_EMAIL: serviceAccount.email,
+                GCP_PRIVATE_KEY: serviceAccountKey.privateKey,
+                GCP_BUCKET_NAME: gcsBucket.name,
+                DYNAMO_DB_NAME: dynamoDBTable.name,
+            }, 
+        },
+        timeout: 10,
+        role: lambdaFunctionRole.arn,
+    });
+    
+    const snsSubscription = new aws.sns.TopicSubscription("snsSubscription", {
+        protocol: "lambda",
+        endpoint: lambdaFunction.arn,
+        topic: myTopic.arn,
+    });
+
+    const invokeLambdaForSNS = new aws.lambda.Permission("invokeLambdaForSNS", {
+        action: "lambda:InvokeFunction",
+        function: lambdaFunction.arn,
+        principal: "sns.amazonaws.com",
+    });
+
     const rdsSubnetGroup = new aws.rds.SubnetGroup("myrdssubnetgroup", {
         subnetIds: privateSubnets,
         tags: {
@@ -267,7 +448,7 @@ availableZones().then((zones) => {
         parameterGroupName: dbParameterGroup.name,
     });
 
-    const userDataScriptBase64 = pulumi.all([rdsInstance.dbName, rdsInstance.username, rdsInstance.password, rdsInstance.address]).apply(([dbName, username, password, host]) => {
+    const userDataScriptBase64 = pulumi.all([rdsInstance.dbName, rdsInstance.username, rdsInstance.password, rdsInstance.address, awsregion, myTopic.arn, snsAccessKeys.id, snsAccessKeys.secret]).apply(([dbName, username, password, host, region, topicarn, keyid, keysecret]) => {
         const userDataScript = `#!/bin/bash
             envFile="/opt/mywebappdir/.env"
             > "$envFile"
@@ -276,6 +457,10 @@ availableZones().then((zones) => {
             echo "PGPASSWORD=${password}" >> "$envFile"
             echo "PGHOST=${host}" >> "$envFile"
             echo "PGPORT=5432" >> "$envFile"
+            echo "AWSREGION=${region}" >> "$envFile"
+            echo "SNSARN=${topicarn}" >> "$envFile"
+            echo "AWSACCESSKEYID=${keyid}" >> "$envFile"
+            echo "AWSACCESSSECRET=${keysecret}" >> "$envFile"
             sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
                 -a fetch-config \
                 -m ec2 \
@@ -286,7 +471,6 @@ availableZones().then((zones) => {
             sudo systemctl start webapp
         `;
     
-        // Convert to Base64
         return Buffer.from(userDataScript).toString('base64');
     });
 
@@ -303,9 +487,9 @@ availableZones().then((zones) => {
         }),
     });
  
-    const clouldWatchAgenetPolicyArn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy";
+    const clouldWatchAgentPolicyArn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy";
     const cloudWatchAgentServiceRolePolicyAttachment = new aws.iam.PolicyAttachment("cloudWatchAgentServiceRolePolicyAttachment", {
-        policyArn: clouldWatchAgenetPolicyArn,
+        policyArn: clouldWatchAgentPolicyArn,
         roles: [cloudWatchAgentServiceRole.name],
     });
 
@@ -333,6 +517,7 @@ availableZones().then((zones) => {
         instanceType: ec2instanceType,
         keyName: ec2keyName,
         imageId: amiId,
+        //userData: base64UserData,
         userData: userDataScriptBase64,
         iamInstanceProfile: {
             name: instanceProfile.name,
