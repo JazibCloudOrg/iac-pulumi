@@ -49,6 +49,7 @@ const healthCheckMatcher = new pulumi.Config("myTargetGroup").require("healthChe
 const lambdaRuntime = new pulumi.Config("lambda").require("runtime");
 const lambdaHandler = new pulumi.Config("lambda").require("handler");
 const lambdaFunctionPath = new pulumi.Config("lambda").require("functionPath");
+const sesSenderMailId = new pulumi.Config("ses").require("senderMailId");
 
 const availableZones = async () => {
     try{
@@ -275,32 +276,6 @@ availableZones().then((zones) => {
 
     const myTopic = new aws.sns.Topic("myTopic");
 
-    const snsUser = new aws.iam.User("snsUser");
-
-    const snsPolicy = new aws.iam.Policy("snsPolicy", {
-        description: "Policy for SNS access",
-        policy: JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Action: [
-                    "sns:Publish",
-                    "sns:Subscribe",
-                ],
-                Effect: "Allow",
-                Resource: "*",
-            }],
-        }),
-    });
-
-    const snsUserPolicyAttachment = new aws.iam.UserPolicyAttachment("snsUserPolicyAttachment", {
-        policyArn: snsPolicy.arn,
-        user: snsUser.name,
-    });
-
-    const snsAccessKeys = new aws.iam.AccessKey("snsAccessKeys", {
-        user: snsUser.name,
-    });
-
     const lambdaFunctionRole = new aws.iam.Role("lambdaFunctionRole", {
         assumeRolePolicy: JSON.stringify({
             Version: "2012-10-17",
@@ -404,7 +379,9 @@ availableZones().then((zones) => {
                 GCP_CLIENT_EMAIL: serviceAccount.email,
                 GCP_PRIVATE_KEY: serviceAccountKey.privateKey,
                 GCP_BUCKET_NAME: gcsBucket.name,
+                GCP_PROJECT_NAME: gcpproject,
                 DYNAMO_DB_NAME: dynamoDBTable.name,
+                SES_SENDER_MAIL_ID: sesSenderMailId
             }, 
         },
         timeout: 10,
@@ -448,7 +425,7 @@ availableZones().then((zones) => {
         parameterGroupName: dbParameterGroup.name,
     });
 
-    const userDataScriptBase64 = pulumi.all([rdsInstance.dbName, rdsInstance.username, rdsInstance.password, rdsInstance.address, awsregion, myTopic.arn, snsAccessKeys.id, snsAccessKeys.secret]).apply(([dbName, username, password, host, region, topicarn, keyid, keysecret]) => {
+    const userDataScriptBase64 = pulumi.all([rdsInstance.dbName, rdsInstance.username, rdsInstance.password, rdsInstance.address, awsregion, myTopic.arn]).apply(([dbName, username, password, host, region, topicarn]) => {
         const userDataScript = `#!/bin/bash
             envFile="/opt/mywebappdir/.env"
             > "$envFile"
@@ -459,8 +436,6 @@ availableZones().then((zones) => {
             echo "PGPORT=5432" >> "$envFile"
             echo "AWSREGION=${region}" >> "$envFile"
             echo "SNSARN=${topicarn}" >> "$envFile"
-            echo "AWSACCESSKEYID=${keyid}" >> "$envFile"
-            echo "AWSACCESSSECRET=${keysecret}" >> "$envFile"
             sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
                 -a fetch-config \
                 -m ec2 \
@@ -490,6 +465,26 @@ availableZones().then((zones) => {
     const clouldWatchAgentPolicyArn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy";
     const cloudWatchAgentServiceRolePolicyAttachment = new aws.iam.PolicyAttachment("cloudWatchAgentServiceRolePolicyAttachment", {
         policyArn: clouldWatchAgentPolicyArn,
+        roles: [cloudWatchAgentServiceRole.name],
+    });
+
+    const snsPolicy = new aws.iam.Policy("snsPolicy", {
+        description: "Policy for SNS access",
+        policy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Action: [
+                    "sns:Publish",
+                    "sns:Subscribe",
+                ],
+                Effect: "Allow",
+                Resource: "*",
+            }],
+        }),
+    });
+
+    const snsRolePolicyAttachment = new aws.iam.PolicyAttachment("snsUserPolicyAttachment", {
+        policyArn: snsPolicy.arn,
         roles: [cloudWatchAgentServiceRole.name],
     });
 
