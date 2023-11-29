@@ -350,19 +350,20 @@ availableZones().then((zones) => {
 
     const dynamoDBPolicy = new aws.iam.Policy("dynamoDBPolicy", {
         description: "Allow PutItem and GetItem in DynamoDB",
-        policy: JSON.stringify({
+        policy: {
             Version: "2012-10-17",
             Statement: [
                 {
                     Effect: "Allow",
                     Action: [
-                        "dynamodb:GetItem",
-                        "dynamodb:PutItem",
+                        "dynamodb:PutItem"
                     ],
-                    Resource: "*",
+                    Resource: [
+                        dynamoDBTable.arn
+                    ],
                 },
             ],
-        }),
+        },
     });
     
     const dynamoDBPolicyAttachment = new aws.iam.PolicyAttachment("dynamoDBPolicyAttachment", {
