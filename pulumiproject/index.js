@@ -50,6 +50,9 @@ const lambdaRuntime = new pulumi.Config("lambda").require("runtime");
 const lambdaHandler = new pulumi.Config("lambda").require("handler");
 const lambdaFunctionPath = new pulumi.Config("lambda").require("functionPath");
 const sesSenderMailId = new pulumi.Config("ses").require("senderMailId");
+const mgSenderMailId = new pulumi.Config("mg").require("mgsenderMailId");
+const mgApplicationDomain = new pulumi.Config("mg").require("applicationDomain");
+const mgApiKey = new pulumi.Config("mg").require("apiKey");
 
 const availableZones = async () => {
     try{
@@ -300,10 +303,10 @@ availableZones().then((zones) => {
         roles: [lambdaFunctionRole.name],
     });
 
-    const lambdaSESFullAccessPolicyAttachment = new aws.iam.PolicyAttachment("lambdaSESFullAccessPolicyAttachment", {
-        policyArn: "arn:aws:iam::aws:policy/AmazonSESFullAccess",
-        roles: [lambdaFunctionRole.name],
-    });
+    // const lambdaSESFullAccessPolicyAttachment = new aws.iam.PolicyAttachment("lambdaSESFullAccessPolicyAttachment", {
+    //     policyArn: "arn:aws:iam::aws:policy/AmazonSESFullAccess",
+    //     roles: [lambdaFunctionRole.name],
+    // });
 
     const dynamoDBTable = new aws.dynamodb.Table("EmailTracking", {
         attributes: [
@@ -381,7 +384,10 @@ availableZones().then((zones) => {
                 GCP_BUCKET_NAME: gcsBucket.name,
                 GCP_PROJECT_NAME: gcpproject,
                 DYNAMO_DB_NAME: dynamoDBTable.name,
-                SES_SENDER_MAIL_ID: sesSenderMailId
+                SES_SENDER_MAIL_ID: sesSenderMailId,
+                MG_SENDER_MAIL_ID: mgSenderMailId,
+                MG_APP_DOMAIN: mgApplicationDomain,
+                MG_API_KEY: mgApiKey
             }, 
         },
         timeout: 10,
@@ -474,8 +480,7 @@ availableZones().then((zones) => {
             Version: "2012-10-17",
             Statement: [{
                 Action: [
-                    "sns:Publish",
-                    "sns:Subscribe",
+                    "sns:Publish"
                 ],
                 Effect: "Allow",
                 Resource: "*",
