@@ -53,6 +53,7 @@ const sesSenderMailId = new pulumi.Config("ses").require("senderMailId");
 const mgSenderMailId = new pulumi.Config("mg").require("mgsenderMailId");
 const mgApplicationDomain = new pulumi.Config("mg").require("applicationDomain");
 const mgApiKey = new pulumi.Config("mg").require("apiKey");
+const sslcertarn = new pulumi.Config("ssl").require("certificatearn");
 
 const availableZones = async () => {
     try{
@@ -95,7 +96,7 @@ availableZones().then((zones) => {
     });
 
     const ingressRulesLb = [
-        { protocol: "tcp", fromPort: 80, toPort: 80, cidrBlocks: ["0.0.0.0/0"] }, // HTTP
+       // { protocol: "tcp", fromPort: 80, toPort: 80, cidrBlocks: ["0.0.0.0/0"] }, // HTTP
         { protocol: "tcp", fromPort: 443, toPort: 443, cidrBlocks: ["0.0.0.0/0"] } // HTTPS
     ];
 
@@ -124,19 +125,19 @@ availableZones().then((zones) => {
         vpcId: main.id,
     });
 
-    const ingressRules = [
-        { protocol: "tcp", fromPort: 22, toPort: 22 }, // SSH
-        { protocol: "tcp", fromPort: 8080, toPort: 8080 }
-    ];
+    // const ingressRules = [
+    //     { protocol: "tcp", fromPort: 22, toPort: 22 }, // SSH
+    //     { protocol: "tcp", fromPort: 8080, toPort: 8080 }
+    // ];
 
-    new aws.ec2.SecurityGroupRule("ingress-22", {
-        type: "ingress",
-        fromPort: 22,
-        toPort: 22,
-        protocol: "tcp",
-        cidrBlocks: ["0.0.0.0/0"],
-        securityGroupId: applicationSecurityGroup.id,
-    });
+    // new aws.ec2.SecurityGroupRule("ingress-22", {
+    //     type: "ingress",
+    //     fromPort: 22,
+    //     toPort: 22,
+    //     protocol: "tcp",
+    //     cidrBlocks: ["0.0.0.0/0"],
+    //     securityGroupId: applicationSecurityGroup.id,
+    // });
     
     new aws.ec2.SecurityGroupRule("ingress-8080", {
         type: "ingress",
@@ -554,6 +555,18 @@ availableZones().then((zones) => {
         },
     });
 
+    const listener = new aws.lb.Listener("myListener", {
+        loadBalancerArn: appLoadBalancer.arn,
+        port: 443,
+        protocol: "HTTPS",
+        defaultActions: [{
+            type: "forward",
+            targetGroupArn: targetGroup.arn,
+        }],
+        sslPolicy: "ELBSecurityPolicy-2016-08",
+        certificateArn: sslcertarn,
+    });
+
     const autoScalingGroup = new aws.autoscaling.Group("myAutoScalingGroup", {
         minSize: minimumSize,
         maxSize: maximumSize,
@@ -625,18 +638,6 @@ availableZones().then((zones) => {
     const autoScalingGroupAttachment = new aws.autoscaling.Attachment("autoScalingGroupAttachment", {
         autoscalingGroupName: autoScalingGroup.id,
         lbTargetGroupArn: targetGroup.arn,
-    });
-
-    const albListener = new aws.lb.Listener("myAlbListener", {
-        loadBalancerArn: appLoadBalancer.arn,
-        port: 80,
-        protocol: "HTTP",
-        defaultActions: [
-            {
-                type: "forward",
-                targetGroupArn: targetGroup.arn,
-            },
-        ],
     });
     
     const myZone = aws.route53.getZone({ name: domainName });
